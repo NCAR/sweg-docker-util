@@ -167,8 +167,10 @@ function main() {
 
     if [[ $# != 0 ]] ; then
         if [[ -n "$CMD_USER" && $UNAME = Linux ]] ; then
+            echo exec runuser -m "$CMD_USER" "$@"
             exec runuser -m "$CMD_USER" "$@"
         else
+            echo exec "$@"
             exec "$@"
         fi
         echo "$PROG: exec failed!" >&1
