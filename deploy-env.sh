@@ -345,9 +345,9 @@ function replaceFile() {
     new="$1" ; shift
     backup="$1" ; shift
     if [[ "$UNAME" = Linux ]] ; then
-        # Might be testing on e.g. Mac, where --reference-file is unsupported
-        chown --reference-file="$existing" "$new"
-        chmod --reference-file="$existing" "$new"
+        # Might be testing on e.g. Mac, where --reference is unsupported
+        chown --reference="$existing" "$new"
+        chmod --reference="$existing" "$new"
     fi
     ln "$existing" "$backup"
     if [[ $? != 0 ]] ; then
