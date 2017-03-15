@@ -167,10 +167,10 @@ function main() {
 
     if [[ $# != 0 ]] ; then
         if [[ -n "$CMD_USER" && $UNAME = Linux ]] ; then
-            logPrintf 2 "exec runuser -m \"%s\" \"%s\"" "$CMD_USER" "$*"
-            exec runuser -m "$CMD_USER" "$@"
+            logPrintf 2 "exec runuser -m -u \"%s\" \"%s\"\n" "$CMD_USER" "$*"
+            exec runuser -m -u "$CMD_USER" "$@"
         else
-            logPrintf 2 "exec %s" "$*"
+            logPrintf 2 "exec %s\n" "$*"
             exec "$@"
         fi
         echo "$PROG: exec failed!" >&1
