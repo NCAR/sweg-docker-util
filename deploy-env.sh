@@ -1,7 +1,8 @@
 #!/bin/bash
 PROG="deploy-env.sh"
 DESC="Patch config files then run command"
-USAGE1="$PROG [-s|--strict] [-v|--verbose] [-u|--user user] [CMD args...]"
+USAGE1="$PROG [-s|--strict] [-v|--verbose ...] [-u|--user user]
+                  [-i|--init initfile ...] [CMD args...]"
 USAGE2="$PROG -p|--parms"
 USAGE3="$PROG -h|--help"
 FILE_LIST_DEFAULT="/etc/deploy-env.conf"
@@ -190,18 +191,7 @@ function main() {
 
     patchFiles "${FILES[@]}"
 
-    if [[ $# != 0 ]] ; then
-        if [[ -n "$CMD_USER" && $UNAME = Linux ]] ; then
-            logPrintf 2 "exec runuser -m -u \"%s\" \"%s\"\n" "$CMD_USER" "$*"
-            exec runuser -m -u "$CMD_USER" "$@"
-        else
-            logPrintf 2 "exec %s\n" "$*"
-            exec "$@"
-        fi
-        echo "$PROG: exec failed!" >&1
-        exit 1
-    fi
-    return 0
+    runCommand "$CMD_USER" "$@"
 }
 
 function sourceInitFiles() {
@@ -396,6 +386,24 @@ function replaceFile() {
         exit 1
     fi
     logPrintf 2 "\"%s\" replaced successfully\n" $existing
+}
+
+function runCommand() {
+    user="$1"
+    shift
+    if [[ $# != 0 ]] ; then
+        type runuser >/dev/null 2>&1
+        no_runuser=$?
+        if [[ -n "$user" && $no_runuser == 0 && `whoami` == root ]] ; then
+            logPrintf 2 "exec runuser -m -u \"%s\" \"%s\"\n" "$CMD_USER" "$*"
+            exec runuser -m -u "$CMD_USER" "$@"
+        else
+            logPrintf 2 "exec %s\n" "$*"
+            exec "$@"
+        fi
+        echo "$PROG: exec failed!" >&1
+        exit 1
+    fi
 }
 
 function logPrintf() {
