@@ -1,6 +1,6 @@
 #!/bin/bash
-PROG="deploy-env.pl"
-DESC="Patch config files before running command in container"
+PROG="deploy-env.sh"
+DESC="Patch config files then run command"
 USAGE1="$PROG [-s|--strict] [-v|--verbose] [-u|--user user] [CMD args...]"
 USAGE2="$PROG -p|--parms"
 USAGE3="$PROG -h|--help"
@@ -31,7 +31,10 @@ DESCRIPTION
     \"\$\${varname}\" will be replaced with \"\${varname}\".
 
     This script is meant to be used in a Dockerfile ENTRYPOINT, with the
-    command and its arguments specified as the container CMD.
+    command and its arguments specified as the container CMD. For example:
+
+      ENTRYPOINT [ \"/sweg-docker-utils/$PROG\", \"-v\" ]
+      CMD [ \"/bin/myservice\" ]
 
     The following options are supported:
 
@@ -39,6 +42,12 @@ DESCRIPTION
             If a parameter reference (i.e., \"\${varname}\") refers to a non-
             existent environment variable the script will abort. Without this
             option, the script will leave the reference untouched.
+
+    -i|--init=initfile
+            Source the given file before processinging any configuration files.
+            The sourced file is assumed to contain variable definitions that
+            will override and supplement current environment variables. This
+            can appear multiple times to source multiple files.
 
     -v|--verbose
             Write status messages to STDOUT. This can appear multiple times to
@@ -94,6 +103,8 @@ SHOW_PARMS=0
 HELP=0
 N_FILES=0
 declare -a FILES
+N_INIT_FILES=0
+declare -a INIT_FILES
 TMPFILE=
 UNAME=`uname`
 
@@ -108,6 +119,17 @@ while [[ ":$1" == :-* ]] ; do
                 split=y ;;
         -s|--strict)
                 STRICT=1 ;;
+        -i?*)   INIT_FILES[$N_INIT_FILES]="${arg#-i}"
+                (( N_INIT_FILES = $N_INIT_FILES + 1 )) ;;
+        --init=*)
+                INIT_FILES[$N_INIT_FILES]="${arg#--init=}"
+                (( N_INIT_FILES = $N_INIT_FILES + 1 )) ;;
+        -i|--init)
+                INIT_FILES[$N_INIT_FILES]="$1"
+                (( N_INIT_FILES = $N_INIT_FILES + 1 ))
+		shift ;;
+        -v|--verbose)
+                (( VERBOSE = $VERBOSE + 1 )) ;;
         -v?*)   (( VERBOSE = $VERBOSE + 1 ))
                 split=y ;;
         -v|--verbose)
@@ -139,7 +161,8 @@ if [[ $HELP = 1 ]] ; then
     exit 0
 fi
 
-if [[ $SHOW_PARMS = 1 && "$VERBOSE$STRICT$CMD_USER$#" != "000" ]] ; then
+if [[ $SHOW_PARMS = 1 && "$N_INIT_FILES$VERBOSE$STRICT$CMD_USER$#" != "0000" ]]
+then
     echo "$PROG: --parms is not compatible with other options" >&2
     exit 1
 fi
@@ -154,6 +177,8 @@ if [[ ! -r "$FILE_LIST" ]] ; then
 fi
 
 function main() {
+
+    sourceInitFiles
 
     loadFileList
 
@@ -177,6 +202,17 @@ function main() {
         exit 1
     fi
     return 0
+}
+
+function sourceInitFiles() {
+    for initfile in "${INIT_FILES[@]}" ; do
+        logPrintf 2 "Sourcing \"%s\"\n" $initfile
+	. $initfile
+        if [[ $? != 0 ]] ; then
+	    echo "$PROG: error sourcing $initfile" >&2
+	    exit 1
+        fi
+    done
 }
 
 function loadFileList() {
@@ -297,14 +333,14 @@ function patchLine() {
             value="{$varname}"
             modified=1
         else
-            value=`printenv $varname`
-            if [[ $? != 0 ]] ; then
+            eval value=\"\${$varname-uNsEtVaRiAbLe}\"
+            if [[ ":$value" == ":uNsEtVaRiAbLe" ]] ; then
                 (( missingVars = $missingVars + 1 ))
                 msg="$file[$lineno]: Unknown variable \"$varname\""
                 if [[ $STRICT == 1 ]] ; then
                     echo "$msg" >&2
                 else
-                    logPrintf 3 "%s\n" $msg
+                    logPrintf 3 "%s\n" "$msg"
                 fi
             else
                 logPrintf 4 "Line %d: Substituting \"%s\"\n    for variable reference \"\${%s}\"\n" "$lineno" "$value" "$varname"
