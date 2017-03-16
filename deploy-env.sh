@@ -17,10 +17,10 @@ SYNOPSIS
     $USAGE2
 
 DESCRIPTION
-    This script reads a list of configuration file names, modifies the named
-    files by expanding environment variable references, then runs the given
-    command using \"exec\". The list of configuration file names is read from
-    $FILE_LIST_DEFAULT, unless the environment variable FILE_LIST is set,
+    This bash script reads a list of configuration file names, modifies the
+    named files by expanding environment variable references, then runs the
+    given command using \"exec\". The list of configuration file names is read
+    from $FILE_LIST_DEFAULT, unless the environment variable FILE_LIST is set,
     in which case the file named by \$FILE_LIST is read.
 
     Files are modified by replacing all occurances of \"\${varname}\" with the
@@ -45,10 +45,11 @@ DESCRIPTION
             option, the script will leave the reference untouched.
 
     -i|--init=initfile
-            Source the given file before processinging any configuration files.
+            Source the given file before processing any configuration files.
             The sourced file is assumed to contain variable definitions that
             will override and supplement current environment variables. This
-            can appear multiple times to source multiple files.
+            can appear multiple times to source multiple files. See Overriding
+            Environment Variables below
 
     -v|--verbose
             Write status messages to STDOUT. This can appear multiple times to
@@ -63,6 +64,27 @@ DESCRIPTION
 
     -h|--help
             Write this documentation to STDOUT and quit.
+
+
+Overriding Environment Variables
+
+    The \"-i|--init initfile\" command-line option can be used to specify a
+    file that contains parameter values. The file will be \"sourced\" (i.e.
+    evaluated using the \".\" function), so it can actually contain any valid
+    bash commands, but its purpose is to override or supplement environment
+    variables.
+
+    If variables are set in an \"initfile\" but not exported, $PROG will
+    still see the variable definitions because the file is evaluated within the
+    script's own process. By default, if a variable is set in the environment
+    and also in the \"initfile\", the file's definition will override the value
+    from the environment. To force the environment variable to override the
+    value in the file, you can use bash's \"\${parm:-value}\" syntax. For
+    example, if the value of parameter FOO should always be taken from the
+    environment if it is set, but taken from the file otherwise, the file can
+    define the parameter and its default as follows:
+
+      FOO=\"\${FOO:-default_value}\"
 
 EXAMPLES
     For example, given an environment variable USER, which is set to
