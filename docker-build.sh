@@ -68,7 +68,7 @@ if [[ -s $TMPFILE ]] ; then
     echo "TAG: $repo/$name:$version"
     if [[ $WRITE_LOG == y ]] ; then
         echo $CURRTIME $IMAGE $repo $name $version  >>$BUILDLOG
-    ]
+    fi
     exit 0
 else
     exit 1
