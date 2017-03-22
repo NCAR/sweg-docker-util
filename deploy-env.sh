@@ -1,9 +1,8 @@
 #!/bin/bash
 PROG="deploy-env.sh"
 DESC="Patch config files then run command"
-USAGE1="$PROG [-s|--strict] [-v|--verbose ...] [-u|--user user]
-                  [-i|--init initfile ...] [CMD args...]"
-USAGE2="$PROG -p|--parms"
+USAGE1="$PROG [-s|--strict] [-v|--verbose...] [-u|--user user] [CMD args...]"
+USAGE2="$PROG -p|--parms [-r|--root altroot]"
 USAGE3="$PROG -h|--help"
 FILE_LIST_DEFAULT="/etc/deploy-env.conf"
 FILE_LIST="${DEPLOY_ENV_FILE_LIST:-$FILE_LIST_DEFAULT}"
@@ -44,47 +43,25 @@ DESCRIPTION
             existent environment variable the script will abort. Without this
             option, the script will leave the reference untouched.
 
-    -i|--init=initfile
-            Source the given file before processing any configuration files.
-            The sourced file is assumed to contain variable definitions that
-            will override and supplement current environment variables. This
-            can appear multiple times to source multiple files. See Overriding
-            Environment Variables below
-
     -v|--verbose
             Write status messages to STDOUT. This can appear multiple times to
             increase verbosity.
 
-    -u|--user=cmd_user
+    -u|--user cmd_user
             Execute the command as the indicated user.
 
     -p|--parms
             Display a list of all the parameters (i.e. environment variable
             references) in the target configuration files.
 
+    -r|--root altroot
+            When used with -p|--parms, the given \"altroot\" path is prepended
+            to the main configuration file and to every path in that file.
+            This is typically the path of a Docker context directory that
+            mirrors the structure of the container's root.
+
     -h|--help
             Write this documentation to STDOUT and quit.
-
-
-Overriding Environment Variables
-
-    The \"-i|--init initfile\" command-line option can be used to specify a
-    file that contains parameter values. The file will be \"sourced\" (i.e.
-    evaluated using the \".\" function), so it can actually contain any valid
-    bash commands, but its purpose is to override or supplement environment
-    variables.
-
-    If variables are set in an \"initfile\" but not exported, $PROG will
-    still see the variable definitions because the file is evaluated within the
-    script's own process. By default, if a variable is set in the environment
-    and also in the \"initfile\", the file's definition will override the value
-    from the environment. To force the environment variable to override the
-    value in the file, you can use bash's \"\${parm:-value}\" syntax. For
-    example, if the value of parameter FOO should always be taken from the
-    environment if it is set, but taken from the file otherwise, the file can
-    define the parameter and its default as follows:
-
-      FOO=\"\${FOO:-default_value}\"
 
 EXAMPLES
     For example, given an environment variable USER, which is set to
@@ -115,7 +92,6 @@ ENVIRONMENT
     DEPLOY_ENV_FILE_LIST
         If set, the file containing the list of configuration files to patch.
 
-
 "
 
 FAILSAFE_SUFFIX="debk"
@@ -123,11 +99,9 @@ STRICT=0
 VERBOSE=0
 CMD_USER=""
 SHOW_PARMS=0
+ALTROOT=
 HELP=0
-N_FILES=0
-declare -a FILES
-N_INIT_FILES=0
-declare -a INIT_FILES
+FILES=()
 TMPFILE=
 UNAME=`uname`
 
@@ -142,15 +116,6 @@ while [[ ":$1" == :-* ]] ; do
                 split=y ;;
         -s|--strict)
                 STRICT=1 ;;
-        -i?*)   INIT_FILES[$N_INIT_FILES]="${arg#-i}"
-                (( N_INIT_FILES = $N_INIT_FILES + 1 )) ;;
-        --init=*)
-                INIT_FILES[$N_INIT_FILES]="${arg#--init=}"
-                (( N_INIT_FILES = $N_INIT_FILES + 1 )) ;;
-        -i|--init)
-                INIT_FILES[$N_INIT_FILES]="$1"
-                (( N_INIT_FILES = $N_INIT_FILES + 1 ))
-		shift ;;
         -v|--verbose)
                 (( VERBOSE = $VERBOSE + 1 )) ;;
         -v?*)   (( VERBOSE = $VERBOSE + 1 ))
@@ -161,13 +126,14 @@ while [[ ":$1" == :-* ]] ; do
                 split=y ;;
         -p|--parms)
                 SHOW_PARMS=1 ;;
+        -r?*)   ALTROOT="${arg#-r}" ;;
+        -r|--root)
+                ALTROOT=1 ;;
         -h?*)   HELP=1
                 split=y ;;
         -h|--help)
                 HELP=1 ;;
         -u?*)   CMD_USER="${arg#-u}" ;;
-        --user=*)
-                CMD_USER="${arg#--user=}" ;;
         -u|--user)
                 CMD_USER="$1"
                 shift ;;
@@ -184,24 +150,21 @@ if [[ $HELP = 1 ]] ; then
     exit 0
 fi
 
-if [[ $SHOW_PARMS = 1 && "$N_INIT_FILES$VERBOSE$STRICT$CMD_USER$#" != "0000" ]]
-then
-    echo "$PROG: --parms is not compatible with other options" >&2
-    exit 1
-fi
-
-if [[ ! -e "$FILE_LIST" ]] ; then
-    echo "$PROG: file list \"$FILE_LIST\" does not exist" >&2
-    exit 1
-fi
-if [[ ! -r "$FILE_LIST" ]] ; then
-    echo "$PROG: file list \"$FILE_LIST\" is not readable" >&2
-    exit 1
+if [[ $SHOW_PARMS = 1 ]] ; then
+    if [[ "$VERBOSE$STRICT$CMD_USER$#" != "000" ]] ; then
+        echo "$PROG: --parms is not compatible with other options" >&2
+        exit 1
+    fi
+    if [[ "$FILE_LIST" == /* ]] ; then
+	FILE_LIST="$ALTROOT$FILE_LIST"
+    fi
+else
+    ALTROOT=
 fi
 
 function main() {
 
-    sourceInitFiles
+    validateFile "$FILE_LIST"
 
     loadFileList
 
@@ -216,15 +179,15 @@ function main() {
     runCommand "$CMD_USER" "$@"
 }
 
-function sourceInitFiles() {
-    for initfile in "${INIT_FILES[@]}" ; do
-        logPrintf 2 "Sourcing \"%s\"\n" $initfile
-	. $initfile
-        if [[ $? != 0 ]] ; then
-	    echo "$PROG: error sourcing $initfile" >&2
-	    exit 1
-        fi
-    done
+function validateFile() {
+    if [[ ! -e "$1" ]] ; then
+        echo "$PROG: \"$1\" does not exist" >&2
+        exit 1
+    fi
+    if [[ ! -r "$1" ]] ; then
+        echo "$PROG: \"$1\" is not readable" >&2
+        exit 1
+    fi
 }
 
 function loadFileList() {
@@ -237,9 +200,11 @@ function loadFileList() {
         else
 	    tmp="${line## }"
             file="${tmp%% }"
-	    if validateConfigFile ; then
-                FILES[$N_FILES]="$file"
-                (( N_FILES = $N_FILES + 1 ));
+            if [[ "$file" == /* ]] ; then
+		file="$ALTROOT$file"
+            fi
+	    if validateConfigFile "$file" ; then
+                FILES[${#FILES}]="$file"
             else 
                 exit 1
             fi
@@ -248,7 +213,8 @@ function loadFileList() {
 }
 
 function validateConfigFile() {
-    dir=`dirname $file`
+    file="$1"
+    dir=$(dirname "$file")
     if [[ ! -f "$file" ]] ; then
         echo "$PROG: \"$file\": not a file" >&1
         return 1
