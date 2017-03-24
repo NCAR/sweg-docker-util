@@ -52,6 +52,9 @@ if [[ ! -f Dockerfile ]] ; then
     fi
     scriptdir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
     for dir in $dirs ; do
+        if [[ ! -d "$dir" ]] ; then
+            continue
+        fi
 	echo "======== $dir ========"
 	(cd $dir ; $scriptdir/$PROG "$@")
 	echo
