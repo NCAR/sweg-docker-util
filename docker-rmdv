@@ -1,0 +1,55 @@
+#!/bin/bash
+#
+PROG=docker-rmdv
+HELPTEXT="NAME
+
+    $PROG - remove dangling Docker volumes
+
+SYNOPSIS
+
+    $PROG [-n]
+    $PROG -h|--help
+
+DESCRIPTION
+
+    This script helps remove docker dangling volumes.
+
+    The following options are supported:
+
+    -n          Don't actually remove volumes, just show what would be removed
+    -h|--help   Display help
+"
+
+HELP=n
+NO_CHANGE=n
+ALL=n
+while [[ $# -gt 0 ]] ; do
+    case $1 in
+    -h?*) HELP=y
+    	  arg="-${1#-h}"
+	  shift
+          set : $arg "$@" ;;
+    -h)   HELP=y ;;
+    --help) HELP=y ;;
+    -n?*) NO_CHANGE=y
+    	  arg="-${1#-n}"
+	  shift
+          set : $arg "$@" ;;
+    -n)   NO_CHANGE=y ;;
+    esac
+    shift
+done
+if [[ $HELP = y ]] ; then
+    echo "$HELPTEXT"
+    exit 0
+fi
+if [[ $NO_CHANGE = y ]] ; then
+   echo 'docker volume ls -f dangling=true'
+   docker volume ls -f dangling=true
+   exit $?
+else
+   echo 'docker volume rm $(docker volume ls -f dangling=true -q)'
+   docker volume rm $(docker volume ls -f dangling=true -q)
+   exit $?
+fi
+

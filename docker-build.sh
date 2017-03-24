@@ -1,5 +1,5 @@
 #!/bin/bash
-PROG=build.sh
+PROG=docker-build.sh
 DESC="Run docker build and tag the resulting image using label values"
 USAGE1="$PROG [-l]"
 USAGE2="$PROG -h|--help"
@@ -27,8 +27,8 @@ DESCRIPTION
 
     The folowing options are supported:
 
-    -l|--log    Append the build time, image ID, "repo" label, "name" label, and
-               "version" label to the file "$BUILDLOG".
+    -l|--log    Append the build time, image ID, "repo" label, "name" label,
+                and "version" label to the file "$BUILDLOG".
 
     -h|--help  Print this help message and quit.
 
@@ -37,6 +37,27 @@ EOF
 fi
 
 WRITE_LOG=n
+if [[ ! -f Dockerfile ]] ; then
+    if [[ -f BUILD ]] ; then
+	dirs=$(grep -v ' *#' BUILD)
+    else
+	dockerfiles=$(echo */Dockerfile)
+        if [[ "$dockerfiles" = '*/Dockerfile' ]] ; then
+            echo "$PROG: cannot find Dockerfile!" >&2
+	    exit 1
+        fi
+        for dockerfile in $dockerfiles ; do
+	    dirs="$dirs $(dirname $dockerfile)"
+        done
+    fi
+    scriptdir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+    for dir in $dirs ; do
+	echo "======== $dir ========"
+	(cd $dir ; $scriptdir/$PROG "$@")
+	echo
+    done
+    exit 0
+fi
 if [[ ":$1" == ":-l" || ":$1" == ":--log" ]] ; then
     WRITE_LOG=y
 fi

@@ -1,0 +1,99 @@
+#!/bin/bash
+#
+PROG=docker-rmi
+HELPTEXT="NAME
+
+    $PROG - remove Docker images
+
+SYNOPSIS
+
+    $PROG [-n] -d
+    $PROG [-n] -p pattern
+    $PROG -h|--help
+
+DESCRIPTION
+
+    This script helps manage docker images, which breed like rats.
+
+    The following options are supported:
+
+    -a          Remove all images.
+    -d          Remove dangling images.
+    -p pattern  Remove images that match a pattern.
+    -n          When given with -a, -d, or -p, don't actually remove images,
+                just show what would be removed
+    -h|--help   Display help
+"
+
+HELP=n
+NO_CHANGE=n
+DANGLING=n
+PATTERN=
+ALL=n
+while [[ $# -gt 0 ]] ; do
+    case $1 in
+    -h?*) HELP=y
+    	  arg="-${1#-h}"
+	  shift
+          set : $arg "$@" ;;
+    -h)   HELP=y ;;
+    --help) HELP=y ;;
+    -d?*) DANGLING=y
+    	  arg="-${1#-d}"
+	  shift
+          set : $arg "$@" ;;
+    -d)   DANGLING=y ;;
+    -p?*) PATTERN="${1#-p}" ;;
+    -p)   PATTERN="$2"
+    	  shift ;;
+    -a?*) ALL=y
+    	  arg="-${1#-a}"
+	  shift
+          set : $arg "$@" ;;
+    -a)   ALL=y ;;
+    -n?*) NO_CHANGE=y
+    	  arg="-${1#-n}"
+	  shift
+          set : $arg "$@" ;;
+    -n)   NO_CHANGE=y ;;
+    esac
+    shift
+done
+if [[ $HELP = y ]] ; then
+    echo "$HELPTEXT"
+    exit 0
+fi
+if [[ ":$PATTERN" != ":" ]] ; then
+   if [[ $NO_CHANGE = y ]] ; then
+      echo "docker images | grep \"$PATTERN\""
+      docker images | grep "$PATTERN"
+      exit $?
+   else
+      echo "docker images | grep \"pattern\" | awk '{print $1}' | xargs docker rm"
+      docker images | grep \"pattern\" | awk '{print $1}' | xargs docker rm
+      exit $?
+   fi
+fi
+if [[ "$DANGLING" = "y" ]] ; then
+   if [[ $NO_CHANGE = y ]] ; then
+      echo "docker images -f dangling=true"
+      docker images -f dangling=true
+      exit $?
+   else
+      echo 'docker rmi $(docker images -f dangling=true -q)'
+      docker rmi $(docker images -f dangling=true -q)
+      exit $?
+   fi
+fi
+if [[ "$ALL" = "y" ]] ; then
+   if [[ $NO_CHANGE = y ]] ; then
+      echo "docker images -a"
+      docker images -a
+      exit $?
+   else
+      echo 'docker rmi $(docker images -a -q)'
+      docker rmi $(docker images -a -q)
+      exit $?
+   fi
+fi
+
