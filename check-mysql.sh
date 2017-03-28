@@ -44,13 +44,17 @@ DESCRIPTION
     -l|--level
             Increase the extent of checking for server/database health. The
             default level is 0, but the level increases by one each time this
-            option is given. For example, \"$PROG -lll\" would set the
-            level to 3. At level 0, the server host is \"ping\"; at level 1,
-            the existence of the indicated database and tables is verified.
-            At level 2, \"mysqlcheck --quick\" is run. At level 3,
-            \"mysqlcheck --medium-check\" is run. At level 4 and above,
-            \"mysqlcheck --extended\" is run. Note that higher level values
-            take longer to run.
+            option is given. At level zero, the server host is \"pinged\"; at
+            level 1 (\"-l\"), the user/password is validated; at level 2
+            (\"-ll\"), the existence of the indicated database and tables is
+            verified; at level 3 (\"-lll\"), \"mysqlcheck --quick\" is run;
+            at level 4 (\"-llll\"), \"mysqlcheck --medium-check\" is run; at
+            level 5 and above, \"mysqlcheck --extended\" is run. Note that
+            higher level values take longer to run.
+
+    -u|--user username
+            The mysql user to connect with. This is only used if the check
+            level is one or more (see -l|--level). Default is \"root\".
 
     -h|--help
             Just print this help text and exit.
@@ -64,6 +68,20 @@ ENVIRONMENT
             If given and not empty, the name of the directory containing
             password files. Default is \"/run/secrets\". The password file must
             have the name \"mysql-<user>-password\". 
+
+RETURN VALUES
+
+    0  Server is up and, if level is non-zero, the indicated database/tables
+       are present/consistent
+
+    1  The server could not be contacted, but the problem could be transient.
+
+    2  The server denied access to the given username/password.
+
+    3  The response from the server implies a condition that probably requires
+       intervention
+
+    9  An invalid argument was given on the command line.
 "
 
 TABLE=()
@@ -77,13 +95,22 @@ function main() {
     PASSWORD_FILE="$VOL_SECRETS/mysql-$USER-password"
     read PASSWORD <$PASSWORD_FILE
     if [[ $? != 0 ]] ; then
-        echo "$PROG: unable to read mysql password for $USER" >&2
-        exit 1;
+        if [[ $LEVEL -gt 0 ]] ; then
+            echo "$PROG: unable to read mysql password for $USER" >&2
+            exit 1;
+        else
+            # password does not matter with ping
+            PASSWORD=unknown
+        fi
     fi
 
     checkIfUp
 
     if [[ $LEVEL -gt 0 ]] ; then
+        checkUserPassword
+    fi
+
+    if [[ $LEVEL -gt 1 ]] ; then
         checkIfDatabasePresent
 	rc=$?
 	if [[ $rc == 0 && ${#TABLE[@]} != 0 ]] ; then
@@ -93,9 +120,10 @@ function main() {
     fi
     case $LEVEL in
         0) return 0 ;;
-        1) return $rc ;;
-	2) arg=--quick ;;
-	3) arg=--medium-check ;;
+        1) return 0 ;;
+        2) return $rc ;;
+	3) arg=--quick ;;
+	4) arg=--medium-check ;;
 	*) arg=--extended ;;
     esac
     if [[ -z "$EXPLICIT_DATABASE" ]] ; then
@@ -110,8 +138,14 @@ function main() {
 function checkIfUp() {
     mysqladmin --user="$USER" --password="$PASSWORD" --connect_timeout=5 --host="$HOST" --port="$PORT" ping  >/dev/null 2>&1
     if [[ $? != 0 ]] ; then
-        echo "$PROG: unable to ping $HOST" >&2
-	exit 1
+        exit 1
+    fi
+}
+
+function checkUserPassword() {
+    mysqladmin --user="$USER" --password="$PASSWORD" --connect_timeout=5 --host="$HOST" --port="$PORT" ping  >$TMPFILE 2>&1
+    if grep "Access denied for user" $TMPFILE ; then
+        exit 1
     fi
 }
 
@@ -177,7 +211,10 @@ function processCommandLine() {
             -p|--port)
                     PORT="$1"
                     shift ;;
-            -p?*)   PORT="${arg#-p}" ;;
+            -u?*)   USER="${arg#-u}" ;;
+            -u|--user)
+                    USER="$1"
+                    shift ;;
 
         -l|--level)
                 (( LEVEL = $LEVEL + 1 )) ;;
@@ -224,31 +261,3 @@ rc=$?
 rm -f $TMPFILE $TMPFILE2
 trap 0
 exit $rc
-
-cat >>/dev/null <<EOF
-What do we want the webapp to do if the database is unavailable? Wait? Fail?
-
-  -> fail fast when starting up
-
-Healthcheck for webapp should check database (?)
-  
-Maybe write generic wait-until-healthy.sh that uses a given healthcheck
-command?
-
-What about initializing an empty database, like with xdmod?
-
-Should the db container fail if there is no database, and leave initializing
-to the dbinit container? Should it spin and wait? And what do we do in the
-dbinit container once the database is initialized? Use restart policy "no".
-
-Pass the mysql root password to the db container so it can initialize an
-empty database.
-
-Have dbinit wait until the database is running and default tables are created.
-Then have it check if xdmod tables are present
-
-
-
-
-EOF
-

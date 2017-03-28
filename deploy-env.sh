@@ -4,8 +4,10 @@ DESC="Patch config files then run command"
 USAGE1="$PROG [-s|--strict] [-v|--verbose...] [-u|--user user] [CMD args...]"
 USAGE2="$PROG -p|--parms [-r|--root altroot]"
 USAGE3="$PROG -h|--help"
-FILE_LIST_DEFAULT="/etc/deploy-env.conf"
+FILE_LIST_DEFAULT="/etc/deploy-env-files.cnf"
 FILE_LIST="${DEPLOY_ENV_FILE_LIST:-$FILE_LIST_DEFAULT}"
+DIR_LIST_DEFAULT="/etc/deploy-env-dirs.cnf"
+DIR_LIST="${DEPLOY_ENV_DIR_LIST:-$DIR_LIST_DEFAULT}"
 
 HELP_TEXT="
 NAME
@@ -36,6 +38,9 @@ DESCRIPTION
       ENTRYPOINT [ \"/sweg-docker-utils/$PROG\", \"-v\" ]
       CMD [ \"/bin/myservice\" ]
 
+    In addition to modifying configuration files, the script can optionally
+    ensure that a given set of directories exists. See FILES below.
+
     The following options are supported:
 
     -s|--strict
@@ -59,6 +64,9 @@ DESCRIPTION
             to the main configuration file and to every path in that file.
             This is typically the path of a Docker context directory that
             mirrors the structure of the container's root.
+
+    -d|--dir directory
+            Ensure the given directory and all its parents exist.
 
     -h|--help
             Write this documentation to STDOUT and quit.
@@ -88,9 +96,17 @@ FILES
     $FILE_LIST_DEFAULT
         The default file containing the list of configuration files to patch.
 
+    $DIR_LIST_DEFAULT
+        The default file containing the list of directory to create if
+        necessary.
+
 ENVIRONMENT
     DEPLOY_ENV_FILE_LIST
         If set, the file containing the list of configuration files to patch.
+
+    DEPLOY_ENV_DIR_LIST
+        If set, the file containing the list of directories to create if
+        necessary.
 
 "
 
@@ -102,6 +118,7 @@ SHOW_PARMS=0
 ALTROOT=
 HELP=0
 FILES=()
+DIRS=()
 TMPFILE=
 UNAME=`uname`
 
@@ -116,8 +133,6 @@ while [[ ":$1" == :-* ]] ; do
                 split=y ;;
         -s|--strict)
                 STRICT=1 ;;
-        -v|--verbose)
-                (( VERBOSE = $VERBOSE + 1 )) ;;
         -v?*)   (( VERBOSE = $VERBOSE + 1 ))
                 split=y ;;
         -v|--verbose)
@@ -128,7 +143,7 @@ while [[ ":$1" == :-* ]] ; do
                 SHOW_PARMS=1 ;;
         -r?*)   ALTROOT="${arg#-r}" ;;
         -r|--root)
-                ALTROOT=1 ;;
+                ALTROOT="$1" ;;
         -h?*)   HELP=1
                 split=y ;;
         -h|--help)
@@ -168,6 +183,8 @@ function main() {
 
     loadFileList
 
+    loadDirList
+
     if [[ $SHOW_PARMS == 1 ]] ; then
 	showParms "${FILES[@]}"
         trap 0
@@ -175,6 +192,8 @@ function main() {
     fi
 
     patchFiles "${FILES[@]}"
+
+    createDirs "${DIRS[@]}"
 
     runCommand "$CMD_USER" "$@"
 }
@@ -204,7 +223,7 @@ function loadFileList() {
 		file="$ALTROOT$file"
             fi
 	    if validateConfigFile "$file" ; then
-                FILES[${#FILES}]="$file"
+                FILES[${#FILES[@]}]="$file"
             else 
                 exit 1
             fi
@@ -226,6 +245,24 @@ function validateConfigFile() {
         return 1
     fi
     return 0
+}
+
+function loadDirList() {
+    if [[ ! -f "$DIR_LIST" || ! -r "$DIR_LIST" ]] ; then
+	return
+    fi
+    while read line ; do
+        logPrintf 4 "line=\"%s\"\n" "$line"
+        if [[ $line =~ ^[\ \	]*$ ]] ; then
+            :
+        elif [[ $line =~ ^[\ \	]*# ]] ; then
+            :
+        else
+	    tmp="${line## }"
+            dir="${tmp%% }"
+            DIRS[${#DIRS[@]}]="$dir"
+        fi
+    done <$DIR_LIST
 }
 
 function showParms() {
@@ -374,6 +411,15 @@ function replaceFile() {
         exit 1
     fi
     logPrintf 2 "\"%s\" replaced successfully\n" $existing
+}
+
+function createDirs() {
+    for dir in "$@" ; do
+        if [[ ! -d $dir ]] ; then
+            logPrintf 1 "Creating directory \"%s\"\n" "$dir"
+            mkdir -p "$dir" || exit 1
+        fi
+    done
 }
 
 function runCommand() {
