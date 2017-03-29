@@ -275,7 +275,7 @@ function showParms() {
         else
             infile="$file"
         fi
-        while read line ; do
+        while IFS= read -r line ; do
             while [[ $line =~ ^(.*)\$\{([A-Za-z_][A-Za-z_0-9]*)}(.*)$ ]] ; do
                 line="${BASH_REMATCH[1]}"
                 varname="${BASH_REMATCH[2]}"
@@ -310,7 +310,7 @@ function patchFile() {
     modified=0
     lineno=0
     missingVars=0
-    while read line ; do
+    while IFS= read -r line ; do
         (( lineno = $lineno + 1 ))
         patchLine "$file" $lineno "$line"
 	echo "$patchedLine" >>$TMPFILE
