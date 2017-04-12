@@ -9,7 +9,8 @@ FILE_LIST="${DEPLOY_ENV_FILE_LIST:-$FILE_LIST_DEFAULT}"
 DIR_LIST_DEFAULT="/etc/deploy-env-dirs.cnf"
 DIR_LIST="${DEPLOY_ENV_DIR_LIST:-$DIR_LIST_DEFAULT}"
 
-HELP_TEXT="
+function help() {
+    cat <<EOF
 NAME
     $PROG - $DESC
 
@@ -20,23 +21,23 @@ SYNOPSIS
 DESCRIPTION
     This bash script reads a list of configuration file names, modifies the
     named files by expanding environment variable references, then runs the
-    given command using \"exec\". The list of configuration file names is read
+    given command using "exec". The list of configuration file names is read
     from $FILE_LIST_DEFAULT, unless the environment variable FILE_LIST is set,
     in which case the file named by \$FILE_LIST is read.
 
-    Files are modified by replacing all occurances of \"\${varname}\" with the
-    value of the environment \"varname\" variable.
+    Files are modified by replacing all occurances of "\${varname}" with the
+    value of the environment "varname" variable.
 
     If the script sees an extra dollar symbol in what otherwise looks like
-    a variable reference (e.g., \"\$\${varname}\"), the extra dollar sign will
+    a variable reference (e.g., "\$\${varname}"), the extra dollar sign will
     be removed, but the variable refrence will not be expanded. That is,
-    \"\$\${varname}\" will be replaced with \"\${varname}\".
+    "\$\${varname}" will be replaced with "\${varname}".
 
     This script is meant to be used in a Dockerfile ENTRYPOINT, with the
     command and its arguments specified as the container CMD. For example:
 
-      ENTRYPOINT [ \"/sweg-docker-utils/$PROG\", \"-v\" ]
-      CMD [ \"/bin/myservice\" ]
+      ENTRYPOINT [ "/sweg-docker-utils/$PROG", "-v" ]
+      CMD [ "/bin/myservice" ]
 
     In addition to modifying configuration files, the script can optionally
     ensure that a given set of directories exists. See FILES below.
@@ -44,7 +45,7 @@ DESCRIPTION
     The following options are supported:
 
     -s|--strict
-            If a parameter reference (i.e., \"\${varname}\") refers to a non-
+            If a parameter reference (i.e., "\${varname}") refers to a non-
             existent environment variable the script will abort. Without this
             option, the script will leave the reference untouched.
 
@@ -60,7 +61,7 @@ DESCRIPTION
             references) in the target configuration files.
 
     -r|--root altroot
-            When used with -p|--parms, the given \"altroot\" path is prepended
+            When used with -p|--parms, the given "altroot" path is prepended
             to the main configuration file and to every path in that file.
             This is typically the path of a Docker context directory that
             mirrors the structure of the container's root.
@@ -73,7 +74,7 @@ DESCRIPTION
 
 EXAMPLES
     For example, given an environment variable USER, which is set to
-    \"jsmith\", and a configuration file that looks like:
+    "jsmith", and a configuration file that looks like:
 
       echo Hello \${USER}
 
@@ -85,7 +86,7 @@ EXAMPLES
 
       echo Hello jsmith
 
-    and then execute \"mycommand\"
+    and then execute "mycommand"
 
 EXIT STATUS
     The script returns 0 if no command was supplied and no errors were
@@ -95,10 +96,19 @@ EXIT STATUS
 FILES
     $FILE_LIST_DEFAULT
         The default file containing the list of configuration files to patch.
+        Blanks lines and lines starting with "#" are ignored. All other lines
+        are expected to contain a single file name.
 
     $DIR_LIST_DEFAULT
         The default file containing the list of directory to create if
-        necessary.
+        necessary. Blanks lines and lines starting with "#" are ignored. All
+        other lines are expected to contain either a single absolute path for
+        a directory, or a line of the form
+           user:group:mode:path
+        where "user" is a username or uid, "group is a group name or gid,
+        "mode" is an octal mode string, and "path" is an absolute path name.
+
+Each
 
 ENVIRONMENT
     DEPLOY_ENV_FILE_LIST
@@ -108,7 +118,9 @@ ENVIRONMENT
         If set, the file containing the list of directories to create if
         necessary.
 
-"
+EOF
+    exit 0
+}
 
 FAILSAFE_SUFFIX="debk"
 STRICT=0
@@ -116,7 +128,6 @@ VERBOSE=0
 CMD_USER=""
 SHOW_PARMS=0
 ALTROOT=
-HELP=0
 FILES=()
 DIRS=()
 TMPFILE=
@@ -144,10 +155,9 @@ while [[ ":$1" == :-* ]] ; do
         -r?*)   ALTROOT="${arg#-r}" ;;
         -r|--root)
                 ALTROOT="$1" ;;
-        -h?*)   HELP=1
-                split=y ;;
+        -h?*)   help ;;
         -h|--help)
-                HELP=1 ;;
+                help ;;
         -u?*)   CMD_USER="${arg#-u}" ;;
         -u|--user)
                 CMD_USER="$1"
@@ -159,11 +169,6 @@ while [[ ":$1" == :-* ]] ; do
         split=n
     fi
 done
-
-if [[ $HELP = 1 ]] ; then
-    echo "$HELP_TEXT"
-    exit 0
-fi
 
 if [[ $SHOW_PARMS = 1 ]] ; then
     if [[ "$VERBOSE$STRICT$CMD_USER$#" != "000" ]] ; then
@@ -251,18 +256,30 @@ function loadDirList() {
     if [[ ! -f "$DIR_LIST" || ! -r "$DIR_LIST" ]] ; then
 	return
     fi
+    lineno=0
+    err=0
     while read line ; do
+        (( lineno = $lineno + 1 ))
         logPrintf 4 "line=\"%s\"\n" "$line"
         if [[ $line =~ ^[\ \	]*$ ]] ; then
             :
         elif [[ $line =~ ^[\ \	]*# ]] ; then
             :
-        else
-	    tmp="${line## }"
-            dir="${tmp%% }"
+        elif [[ $line =~ ^[[:space:]]*([^:]*:[^:]*:[0-7]*:/.*) ]]
+        then
+            dir="${BASH_REMATCH[1]%% }"
             DIRS[${#DIRS[@]}]="$dir"
+        elif [[ $line =~ ^[[:space:]]*(/.*) ]] ; then
+            dir="${BASH_REMATCH[1]%% }"
+            DIRS[${#DIRS[@]}]="$dir"
+        else
+	    err=1
+            echo "$PROG: ${DIR_LIST}[$lineno]: invalid line" >&2
         fi
     done <$DIR_LIST
+    if [[ $err != 0 ]] ; then
+	exit 1
+    fi
 }
 
 function showParms() {
@@ -414,10 +431,27 @@ function replaceFile() {
 }
 
 function createDirs() {
-    for dir in "$@" ; do
+    for dirspec in "$@" ; do
+	if [[ "$dirspec" =~ ^([^:]*):([^:]*):([^:]*):(/.*) ]] ; then
+	    user_group="${BASH_REMATCH[1]}:${BASH_REMATCH[2]}"
+	    mode="${BASH_REMATCH[3]}"
+	    dir="${BASH_REMATCH[4]}"
+	else
+	    user_group=:
+	    mode=
+	    dir="$dirspec"
+        fi
         if [[ ! -d $dir ]] ; then
             logPrintf 1 "Creating directory \"%s\"\n" "$dir"
             mkdir -p "$dir" || exit 1
+        fi
+	if [[ "$user_group" != : ]] ; then
+            logPrintf 1 "Setting user:group for directory \"%s\" to $user_group\n" "$dir"
+            chown $user_group "$dir" || exit 1
+        fi
+	if [[ -n "$mode" ]] ; then
+            logPrintf 1 "Setting mode for directory \"%s\" to $mode\n" "$dir"
+            chmod $mode "$dir" || exit 1
         fi
     done
 }
