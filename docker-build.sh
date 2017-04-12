@@ -32,6 +32,9 @@ DESCRIPTION
 
     -h|--help  Print this help message and quit.
 
+ENVIRONMENT
+    BUILD_OPTS
+            Options to pass to "docker build".
 EOF
     exit 0
 fi
@@ -69,7 +72,7 @@ CURRTIME=$(date '+%Y-%m-%dT%H:%M:%S%z')
 TMPFILE="/tmp/docker-build-$$.log"
 trap "rm -f $TMPFILE ; exit 1" 1 2 3
 
-docker build . | while read line ; do
+docker build $BUILD_OPTS . | while read line ; do
     echo "$line"
     if [[ $line =~ Successfully[[:space:]]built[[:space:]](.*)$ ]] ; then
 	echo "${BASH_REMATCH[1]}" >$TMPFILE
